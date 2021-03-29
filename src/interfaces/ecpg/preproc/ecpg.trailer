@@ -426,7 +426,7 @@ type_declaration: S_TYPEDEF
 	};
 
 var_declaration: storage_declaration
-		var_type
+		sql_type
 		{
 			actual_type[struct_level].type_enum = $2.type_enum;
 			actual_type[struct_level].type_str = $2.type_str;
@@ -440,7 +440,7 @@ var_declaration: storage_declaration
 		{
 			$$ = cat_str(5, actual_startline[struct_level], $1, $2.type_str, $4, mm_strdup(";\n"));
 		}
-		| var_type
+		| sql_type
 		{
 			actual_type[struct_level].type_enum = $1.type_enum;
 			actual_type[struct_level].type_str = $1.type_str;
@@ -451,6 +451,34 @@ var_declaration: storage_declaration
 			actual_startline[struct_level] = hashline_number();
 		}
 		variable_list ';'
+		{
+			$$ = cat_str(4, actual_startline[struct_level], $1.type_str, $3, mm_strdup(";\n"));
+		}
+		| storage_declaration c_type
+		{
+			actual_type[struct_level].type_enum = $2.type_enum;
+			actual_type[struct_level].type_str = $2.type_str;
+			actual_type[struct_level].type_dimension = $2.type_dimension;
+			actual_type[struct_level].type_index = $2.type_index;
+			actual_type[struct_level].type_sizeof = $2.type_sizeof;
+
+			actual_startline[struct_level] = hashline_number();
+		}
+		variable_list_all ';'
+		{
+			$$ = cat_str(5, actual_startline[struct_level], $1, $2.type_str, $4, mm_strdup(";\n"));
+		}
+		| c_type
+		{
+			actual_type[struct_level].type_enum = $1.type_enum;
+			actual_type[struct_level].type_str = $1.type_str;
+			actual_type[struct_level].type_dimension = $1.type_dimension;
+			actual_type[struct_level].type_index = $1.type_index;
+			actual_type[struct_level].type_sizeof = $1.type_sizeof;
+
+			actual_startline[struct_level] = hashline_number();
+		}
+		variable_list_all ';'
 		{
 			$$ = cat_str(4, actual_startline[struct_level], $1.type_str, $3, mm_strdup(";\n"));
 		}
@@ -480,40 +508,8 @@ storage_modifier : S_CONST	{ $$ = mm_strdup("const"); }
 		| S_VOLATILE		{ $$ = mm_strdup("volatile"); }
 		;
 
-var_type:	simple_type
-		{
-			$$.type_enum = $1;
-			$$.type_str = mm_strdup(ecpg_type_name($1));
-			$$.type_dimension = mm_strdup("-1");
-			$$.type_index = mm_strdup("-1");
-			$$.type_sizeof = NULL;
-		}
-		| struct_union_type
-		{
-			$$.type_str = $1;
-			$$.type_dimension = mm_strdup("-1");
-			$$.type_index = mm_strdup("-1");
-
-			if (strncmp($1, "struct", sizeof("struct")-1) == 0)
-			{
-				$$.type_enum = ECPGt_struct;
-				$$.type_sizeof = ECPGstruct_sizeof;
-			}
-			else
-			{
-				$$.type_enum = ECPGt_union;
-				$$.type_sizeof = NULL;
-			}
-		}
-		| enum_type
-		{
-			$$.type_str = $1;
-			$$.type_enum = ECPGt_int;
-			$$.type_dimension = mm_strdup("-1");
-			$$.type_index = mm_strdup("-1");
-			$$.type_sizeof = NULL;
-		}
-		| ECPGColLabelCommon '(' precision opt_scale ')'
+sql_type:
+		ECPGColLabelCommon '(' precision opt_scale ')'
 		{
 			if (strcmp($1, "numeric") == 0)
 			{
@@ -650,6 +646,41 @@ var_type:	simple_type
 				struct_member_list[struct_level] = ECPGstruct_member_dup(this->struct_member_list);
 			}
 		}
+		;
+
+c_type:	simple_type
+		{
+			$$.type_enum = $1;
+			$$.type_str = mm_strdup(ecpg_type_name($1));
+			$$.type_dimension = mm_strdup("-1");
+			$$.type_index = mm_strdup("-1");
+			$$.type_sizeof = NULL;
+		}
+		| struct_union_type
+		{
+			$$.type_str = $1;
+			$$.type_dimension = mm_strdup("-1");
+			$$.type_index = mm_strdup("-1");
+
+			if (strncmp($1, "struct", sizeof("struct")-1) == 0)
+			{
+				$$.type_enum = ECPGt_struct;
+				$$.type_sizeof = ECPGstruct_sizeof;
+			}
+			else
+			{
+				$$.type_enum = ECPGt_union;
+				$$.type_sizeof = NULL;
+			}
+		}
+		| enum_type
+		{
+			$$.type_str = $1;
+			$$.type_enum = ECPGt_int;
+			$$.type_dimension = mm_strdup("-1");
+			$$.type_index = mm_strdup("-1");
+			$$.type_sizeof = NULL;
+		}
 		| s_struct_union_symbol
 		{
 			/* this is for named structs/unions */
@@ -682,6 +713,10 @@ var_type:	simple_type
 				struct_member_list[struct_level] = NULL;
 			}
 		}
+		;
+
+var_type: sql_type 	{ $$ = $1; }
+		| c_type 	{ $$ = $1; }
 		;
 
 enum_type: ENUM_P symbol enum_definition
@@ -845,6 +880,17 @@ opt_signed: SQL_SIGNED
 		|	/* EMPTY */
 		;
 
+variable_list_all: variable_all
+			{ $$ = $1; }
+		| variable_list_all ',' variable_all
+		{
+			if (actual_type[struct_level].type_enum == ECPGt_varchar || actual_type[struct_level].type_enum == ECPGt_bytea)
+				$$ = cat_str(3, $1, mm_strdup(";"), $3);
+			else
+				$$ = cat_str(3, $1, mm_strdup(","), $3);
+		}
+		;
+
 variable_list: variable
 			{ $$ = $1; }
 		| variable_list ',' variable
@@ -853,6 +899,128 @@ variable_list: variable
 				$$ = cat_str(3, $1, mm_strdup(";"), $3);
 			else
 				$$ = cat_str(3, $1, mm_strdup(","), $3);
+		}
+		;
+
+variable_all: variable		{ $$ = $1; }
+			| variable_func { $$ = $1; }
+		;
+
+var_funcargs: '(' var_arg_list ')' { $$ = cat_str(3, mm_strdup("("), $2, mm_strdup(")")); }
+		;
+
+var_arg_list: var_arg	{ $$ = $1; }
+		| var_arg_list ',' var_arg		{ $$ = cat_str(3, $1,  mm_strdup(","), $3); }
+		;
+
+var_arg: simple_type opt_pointer
+		{
+			$$ = cat_str(2, mm_strdup(ecpg_type_name($1)), $2);
+		}
+		| /* EMPTY */ { $$ = EMPTY; }
+		;
+
+var_funcname: '(' '*' ECPGColLabel ')'
+		{
+			$$.name = $3;
+			$$.str = cat_str(3, mm_strdup("(*"), mm_strdup($3),  mm_strdup(")"));
+		}
+		;
+
+variable_func: opt_pointer var_funcname var_funcargs opt_bit_field opt_initializer
+		{
+			struct ECPGtype * type;
+			char *dimension = mm_strdup("-1");	/* dimension of array */
+			char *length = mm_strdup("-1");		/* length of string */
+			char *dim_str;
+			char *vcn;
+			int *varlen_type_counter;
+			char *struct_name;
+
+			adjust_array(actual_type[struct_level].type_enum, &dimension, &length, actual_type[struct_level].type_dimension, actual_type[struct_level].type_index, strlen($1), false);
+			switch (actual_type[struct_level].type_enum)
+			{
+				case ECPGt_struct:
+				case ECPGt_union:
+					if (atoi(dimension) < 0)
+						type = ECPGmake_struct_type(struct_member_list[struct_level], actual_type[struct_level].type_enum, actual_type[struct_level].type_str, actual_type[struct_level].type_sizeof);
+					else
+						type = ECPGmake_array_type(ECPGmake_struct_type(struct_member_list[struct_level], actual_type[struct_level].type_enum, actual_type[struct_level].type_str, actual_type[struct_level].type_sizeof), dimension);
+
+					$$ = cat_str(5, $1, mm_strdup($2.str), $3, $4, $5);
+					break;
+
+				case ECPGt_varchar:
+				case ECPGt_bytea:
+					if (actual_type[struct_level].type_enum == ECPGt_varchar)
+					{
+						varlen_type_counter = &varchar_counter;
+						struct_name = " struct varchar_";
+					}
+					else
+					{
+						varlen_type_counter = &bytea_counter;
+						struct_name = " struct bytea_";
+					}
+					if (atoi(dimension) < 0)
+						type = ECPGmake_simple_type(actual_type[struct_level].type_enum, length, *varlen_type_counter);
+					else
+						type = ECPGmake_array_type(ECPGmake_simple_type(actual_type[struct_level].type_enum, length, *varlen_type_counter), dimension);
+
+					if (strcmp(dimension, "0") == 0 || abs(atoi(dimension)) == 1)
+							dim_str=mm_strdup("");
+					else
+							dim_str=cat_str(3, mm_strdup("["), mm_strdup(dimension), mm_strdup("]"));
+					/* cannot check for atoi <= 0 because a defined constant will yield 0 here as well */
+					if (atoi(length) < 0 || strcmp(length, "0") == 0)
+						mmerror(PARSE_ERROR, ET_ERROR, "pointers to varchar are not implemented");
+
+					/* make sure varchar struct name is unique by adding a unique counter to its definition */
+					vcn = (char *) mm_alloc(sizeof(int) * CHAR_BIT * 10 / 3);
+					sprintf(vcn, "%d", *varlen_type_counter);
+					if (strcmp(dimension, "0") == 0)
+						$$ = cat_str(7, make2_str(mm_strdup(struct_name), vcn), mm_strdup(" { int len; char arr["), mm_strdup(length), mm_strdup("]; } *"), mm_strdup($2.name), $4, $5);
+					else
+						$$ = cat_str(8, make2_str(mm_strdup(struct_name), vcn), mm_strdup(" { int len; char arr["), mm_strdup(length), mm_strdup("]; } "), mm_strdup($2.name), dim_str, $4, $5);
+					(*varlen_type_counter)++;
+					break;
+
+				case ECPGt_char:
+				case ECPGt_unsigned_char:
+				case ECPGt_string:
+					if (atoi(dimension) == -1)
+					{
+						int i = strlen($5);
+
+						if (atoi(length) == -1 && i > 0) /* char <var>[] = "string" */
+						{
+							/* if we have an initializer but no string size set, let's use the initializer's length */
+							free(length);
+							length = mm_alloc(i+sizeof("sizeof()"));
+							sprintf(length, "sizeof(%s)", $5+2);
+						}
+						type = ECPGmake_simple_type(actual_type[struct_level].type_enum, length, 0);
+					}
+					else
+						type = ECPGmake_array_type(ECPGmake_simple_type(actual_type[struct_level].type_enum, length, 0), dimension);
+
+					$$ = cat_str(5, $1, mm_strdup($2.str), $3, $4, $5);
+					break;
+
+				default:
+					if (atoi(dimension) < 0)
+						type = ECPGmake_simple_type(actual_type[struct_level].type_enum, mm_strdup("1"), 0);
+					else
+						type = ECPGmake_array_type(ECPGmake_simple_type(actual_type[struct_level].type_enum, mm_strdup("1"), 0), dimension);
+
+					$$ = cat_str(5, $1, mm_strdup($2.str), $3, $4, $5);
+					break;
+			}
+
+			if (struct_level == 0)
+				new_variable($2.name, type, braces_open);
+			else
+				ECPGmake_struct_member($2.name, type, &(struct_member_list[struct_level - 1]));
 		}
 		;
 

@@ -590,6 +590,10 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <list>		hash_partbound
 %type <defelt>		hash_partbound_elem
 
+/* Supported by LiLian@2021-03-04 */
+%type <boolean> opt_body
+/* End by LiLian */
+
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
  * They must be listed first so that their numeric codes do not depend on
@@ -617,7 +621,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTACH ATTRIBUTE AUTHORIZATION
 
 	BACKWARD BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
-	BOOLEAN_P BOTH BY
+	BODY BOOLEAN_P BOTH BY
 
 	CACHE CALL CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
 	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
@@ -5797,6 +5801,13 @@ DefineStmt:
 					$$ = (Node *)n;
 				}
 		;
+
+/* Supported by LiLian@2021-03-04 */
+opt_body:
+			BODY								{ $$ = true; }
+			| /*EMPTY*/							{ $$ = false; }
+		;
+/* End by LiLian */
 
 definition: '(' def_list ')'						{ $$ = $2; }
 		;
@@ -15038,6 +15049,7 @@ unreserved_keyword:
 			| BACKWARD
 			| BEFORE
 			| BEGIN_P
+			| BODY		// Supported by LiLian@2021-03-04
 			| BY
 			| CACHE
 			| CALL

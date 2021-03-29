@@ -111,9 +111,9 @@
 %type <str> using_descriptor
 %type <str> var_declaration
 %type <str> var_type_declarations
-%type <str> variable
+%type <str> variable variable_all variable_func var_funcargs var_arg_list var_arg
 %type <str> variable_declarations
-%type <str> variable_list
+%type <str> variable_list variable_list_all
 %type <str> vt_declarations
 
 %type <str> Op
@@ -133,6 +133,7 @@
 
 %type  <descriptor> ECPGGetDescriptor
 %type  <descriptor> ECPGSetDescriptor
+%type <descriptor> var_funcname
 
 %type  <type_enum> simple_type
 %type  <type_enum> signed_type
@@ -141,6 +142,6 @@
 %type  <dtype_enum> descriptor_item
 %type  <dtype_enum> desc_header_item
 
-%type  <type>   var_type
+%type  <type>   var_type sql_type c_type
 
 %type  <action> action
