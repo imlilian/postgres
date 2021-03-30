@@ -168,7 +168,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 		PLpgSQL_case_when		*casewhen;
 }
 
-%type <declhdr> decl_sect
+%type <declhdr> decl_sect decl_proc
 %type <varname> decl_varname
 %type <boolean>	decl_const decl_notnull exit_type
 %type <expr>	decl_defval decl_cursor_query
@@ -194,7 +194,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 
 %type <list>	proc_sect stmt_elsifs stmt_else
 %type <loop_body>	loop_body
-%type <stmt>	proc_stmt pl_block
+%type <stmt>	proc_stmt proc_block pl_block
 %type <stmt>	stmt_assign stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>	stmt_return stmt_raise stmt_assert stmt_execsql
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_call stmt_getdiag
@@ -360,7 +360,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 
 %%
 
-pl_function		: comp_options pl_block opt_semi
+pl_function		: comp_options proc_block opt_semi
 					{
 						plpgsql_parse_result = (PLpgSQL_stmt_block *) $2;
 					}
@@ -409,6 +409,56 @@ option_value : T_WORD
 opt_semi		:
 				| ';'
 				;
+
+/* Oracle grammar supported by LiLian@2021-03-20 */
+proc_block		: decl_proc K_BEGIN proc_sect exception_sect K_END opt_label
+					{
+						PLpgSQL_stmt_block *new;
+
+						new = palloc0(sizeof(PLpgSQL_stmt_block));
+
+						new->cmd_type	= PLPGSQL_STMT_BLOCK;
+						new->lineno		= plpgsql_location_to_lineno(@2);
+						new->stmtid		= ++plpgsql_curr_compile->nstatements;
+						new->label		= $1.label;
+						new->n_initvars = $1.n_initvars;
+						new->initvarnos = $1.initvarnos;
+						new->body		= $3;
+						new->exceptions	= $4;
+
+						check_labels($1.label, $6, @6);
+						plpgsql_ns_pop();
+
+						$$ = (PLpgSQL_stmt *)new;
+					}
+				;
+decl_proc		: opt_block_label
+					{
+						/* done with decls, so resume identifier lookup */
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						$$.n_initvars = 0;
+						$$.initvarnos = NULL;
+					}
+				| opt_block_label 
+					{
+						/* Forget any variables created before block */
+						plpgsql_add_initdatums(NULL);
+						/*
+						 * Disable scanner lookup of identifiers while
+						 * we process the decl_stmts
+						 */
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_DECLARE;
+					}
+				 decl_stmts
+					{
+						plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+						$$.label	  = $1;
+						/* Remember variables declared in decl_stmts */
+						$$.n_initvars = plpgsql_add_initdatums(&($$.initvarnos));
+					}
+				;
+/* End by LiLian */
 
 pl_block		: decl_sect K_BEGIN proc_sect exception_sect K_END opt_label
 					{
@@ -478,7 +528,8 @@ decl_stmt		: decl_statement
 					{
 						/* We allow useless extra DECLAREs */
 					}
-				| LESS_LESS any_identifier GREATER_GREATER
+/* Oracle grammar supported LiLian@2021-03-30 */
+				| decl_statement LESS_LESS any_identifier GREATER_GREATER
 					{
 						/*
 						 * Throw a helpful error if user tries to put block
@@ -487,8 +538,31 @@ decl_stmt		: decl_statement
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("block label must be placed before DECLARE, not after"),
-								 parser_errposition(@1)));
+								 parser_errposition(@2)));
 					}
+				| K_DECLARE LESS_LESS any_identifier GREATER_GREATER
+					{
+						/*
+						 * Throw a helpful error if user tries to put block
+						 * label just before BEGIN, instead of before DECLARE.
+						 */
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("block label must be placed before DECLARE, not after"),
+								 parser_errposition(@2)));
+					}
+				/* | LESS_LESS any_identifier GREATER_GREATER
+					{
+						/*
+						 * Throw a helpful error if user tries to put block
+						 * label just before BEGIN, instead of before DECLARE.
+						 *
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("block label must be placed before DECLARE, not after"),
+								 parser_errposition(@1)));
+					} */
+/* End by LiLian */
 				;
 
 decl_statement	: decl_varname decl_const decl_datatype decl_collate decl_notnull decl_defval
